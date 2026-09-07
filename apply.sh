@@ -23,9 +23,24 @@ until curl -fsS --max-time 3 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; do
   if [ $((SECONDS-last)) -ge 30 ]; then printf '  still loading... %ss\n' "$SECONDS"; last="$SECONDS"; fi; sleep 5
 done
 PORT="$PORT" MODEL_NAME="$MODEL_NAME" "$ROOT/scripts/smoke-test.sh" "http://127.0.0.1:$PORT"; ok 'Health, model discovery, and inference passed'
+primary_route="$(ip -4 route get 1.1.1.1 2>/dev/null | head -n1 || true)"
+primary_ip="$(awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' <<<"$primary_route")"
+primary_iface="$(awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"$primary_route")"
+primary_type=LAN
+if [ -n "$primary_iface" ] && { [ -d "/sys/class/net/$primary_iface/wireless" ] || [ "$(cat "/sys/class/net/$primary_iface/type" 2>/dev/null || true)" = 801 ]; }; then primary_type=Wi-Fi; fi
 ips="$(ip -4 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(docker|br-|veth|cni|virbr|tailscale)/{split($4,a,"/");print a[1]}' | sort -u)"
 printf '\n\033[1;32m============================================================\n GLM-5.3-Flash is ready (no API key)\n============================================================\033[0m\n'
 printf 'Model          : %s\nContext        : %s\nPort           : %s\nLocal API      : http://127.0.0.1:%s/v1\n' "$MODEL_NAME" "$CTX" "$PORT" "$PORT"
-while IFS= read -r ip; do [ -n "$ip" ] || continue; printf 'LAN API        : http://%s:%s/v1\nHealth         : http://%s:%s/health\n' "$ip" "$PORT" "$ip" "$PORT"; [ "$CONFIGURE_SSH" = 1 ] && printf 'SSH            : ssh %s@%s\n' "$SSH_USER" "$ip"; done <<<"$ips"
+if [ -n "$primary_ip" ]; then
+  printf '\nPRIMARY %s CONNECTION (default route: %s)\n' "$primary_type" "$primary_iface"
+  printf 'OpenAI API     : http://%s:%s/v1\nHealth         : http://%s:%s/health\n' "$primary_ip" "$PORT" "$primary_ip" "$PORT"
+  [ "$CONFIGURE_SSH" = 1 ] && printf 'SSH            : ssh %s@%s\n' "$SSH_USER" "$primary_ip"
+fi
+extra_printed=0
+while IFS= read -r ip; do
+  [ -n "$ip" ] && [ "$ip" != "$primary_ip" ] || continue
+  if [ "$extra_printed" = 0 ]; then printf '\nAdditional local/direct interfaces (may be Spark-to-Spark only):\n'; extra_printed=1; fi
+  printf '  http://%s:%s/v1\n' "$ip" "$PORT"
+done <<<"$ips"
 printf 'Logs           : docker logs -f glm53-one-spark\nStatus         : ./stop.sh --status\nApply settings : ./apply.sh\nStop           : ./stop.sh\nConfig         : %s\n\n' "$CONFIG_FILE"
 printf '\033[1;33mSecurity: this endpoint intentionally has no API key. Expose it only on a trusted LAN/VPN; use an authenticated reverse proxy for the public Internet.\033[0m\n'

@@ -24,7 +24,7 @@ cd DGXspark1-GLM5.3-flash
 6. DGX Spark용 패치 vLLM 이미지 빌드
 7. Compose로 GLM 서버와 선택적 watchdog 실행
 8. health, 모델 목록, 실제 짧은 추론 검증
-9. 감지된 모든 LAN IP의 API·health·SSH 명령 출력
+9. 기본 라우트의 Wi-Fi/유선 LAN 주소를 우선한 API·health·SSH 명령 출력
 
 시스템 패키지를 설치할 때만 `sudo` 암호를 요구합니다. NVIDIA 드라이버가 없거나 `nvidia-smi`가 실패하면 드라이버를 임의 변경하지 않고 중단합니다.
 
@@ -43,6 +43,19 @@ cd DGXspark1-GLM5.3-flash
 ```
 
 첫 실행 때 저장소 루트에 `.env.glm`이 자동 생성되고 권한은 `600`으로 제한됩니다. Git에는 커밋되지 않습니다. 포트, 컨텍스트 길이, 동시 요청 수 등을 바꾼 뒤 `./apply.sh`를 실행하세요.
+
+완료 화면은 모든 주소를 같은 중요도로 나열하지 않습니다. 인터넷 기본 라우트에 실제 사용 중인 Wi-Fi 또는 유선 LAN 주소를 `PRIMARY CONNECTION`으로 먼저 보여주고, Spark 간 직결망 같은 주소는 별도 항목으로 구분합니다. 현재 `spark-02`에서는 다음처럼 표시됩니다.
+
+```text
+PRIMARY Wi-Fi CONNECTION (default route: wlP9s9)
+OpenAI API     : http://172.16.22.231:18080/v1
+Health         : http://172.16.22.231:18080/health
+SSH            : ssh sejin@172.16.22.231
+
+Additional local/direct interfaces (may be Spark-to-Spark only):
+  http://192.168.100.11:18080/v1
+  http://192.168.101.11:18080/v1
+```
 
 ## 접속 방법
 
