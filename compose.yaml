@@ -1,0 +1,86 @@
+name: glm53-one-spark
+
+services:
+  glm:
+    image: ${IMAGE}
+    container_name: glm53-one-spark
+    restart: unless-stopped
+    gpus: all
+    network_mode: host
+    ipc: host
+    shm_size: 32gb
+    stop_grace_period: 20s
+    cap_add: [IPC_LOCK]
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    volumes:
+      - "${MODEL_DIR}:/model:ro"
+      - "${DFLASH_DIR}:/draft:ro"
+      - "${CACHE_ROOT}/vllm:/root/.cache/vllm"
+      - "${CACHE_ROOT}/triton:/root/.triton/cache"
+      - "${CACHE_ROOT}/tilelang:/root/.tilelang/cache"
+      - "${CACHE_ROOT}/torchinductor:/tmp/torchinductor_root"
+      - "./scripts/serve-one-spark.sh:/opt/glm53-one-click/serve.sh:ro"
+    environment:
+      GLOO_SOCKET_IFNAME: lo
+      VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: "0"
+      TORCH_CUDA_ARCH_LIST: 12.1a
+      FLASHINFER_CUDA_ARCH_LIST: 12.1a
+      CUTE_DSL_ARCH: sm_121a
+      EXL3_FUSED_MOE: "1"
+      EXL3_MOE_ROW_TILE: "0"
+      EXL3_TEMP_ROWS_FUSED: "128"
+      EXL3_FAT_SORTED: "0"
+      EXL3_FAT_BATCHED: "0"
+      EXL3_FAT_KERNEL: "1"
+      GLM53_SUPPRESS_STOPS_IN_REASONING: "1"
+      GLM53_MIXED_PREFILL_CHUNK: skip
+      GLM53_INDEXER_WORKSPACE: stock
+      GLM53_SPINWAIT_MS: stock
+      VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
+      ONE_SPARK_HOST: ${HOST:-0.0.0.0}
+      ONE_SPARK_PORT: ${PORT:-18080}
+      ONE_SPARK_MODEL_NAME: ${MODEL_NAME:-GLM-5.3-Flash-EXL3-2.05}
+      ONE_SPARK_CTX: ${CTX:-262144}
+      ONE_SPARK_SEQS: ${SEQS:-4}
+      ONE_SPARK_GPU_MEM: ${GPU_MEM:-0.90}
+      ONE_SPARK_BATCHED_TOKENS: ${MAX_BATCHED_TOKENS:-7168}
+      ONE_SPARK_K: ${K:-5}
+    entrypoint: ["bash", "/opt/glm53-one-click/serve.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; r=urllib.request.urlopen(\"http://127.0.0.1:${PORT:-18080}/health\",timeout=5); raise SystemExit(0 if r.status == 200 else 1)'"]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 20m
+    labels:
+      com.glm53.watchdog: "true"
+
+  watchdog:
+    profiles: [watchdog]
+    build:
+      context: .
+      dockerfile: Dockerfile.watchdog
+    image: glm53-watchdog:local
+    container_name: glm53-watchdog
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      glm:
+        condition: service_started
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHDOG_CONTAINER: glm53-one-spark
+      WATCHDOG_URL: http://127.0.0.1:${PORT:-18080}
+      WATCHDOG_MODEL: ${MODEL_NAME:-GLM-5.3-Flash-EXL3-2.05}
+      WATCHDOG_INTERVAL: ${WATCHDOG_INTERVAL:-30}
+      WATCHDOG_FAILURES: ${WATCHDOG_FAILURES:-6}
+      WATCHDOG_STARTUP_GRACE: ${WATCHDOG_STARTUP_GRACE:-1200}
+      WATCHDOG_DEEP_CHECK: ${WATCHDOG_DEEP_CHECK:-1}
+      WATCHDOG_DEEP_INTERVAL: ${WATCHDOG_DEEP_INTERVAL:-600}
+      WATCHDOG_DEEP_TIMEOUT: ${WATCHDOG_DEEP_TIMEOUT:-120}
+      WATCHDOG_DEEP_FAILURES: ${WATCHDOG_DEEP_FAILURES:-3}
+      WATCHDOG_MAX_RESTARTS: ${WATCHDOG_MAX_RESTARTS:-3}
+      WATCHDOG_RESTART_WINDOW: ${WATCHDOG_RESTART_WINDOW:-3600}

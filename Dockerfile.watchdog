@@ -1,0 +1,5 @@
+FROM docker:27-cli
+RUN apk add --no-cache bash curl
+COPY scripts/watchdog.sh /usr/local/bin/glm53-watchdog
+RUN chmod 0755 /usr/local/bin/glm53-watchdog
+ENTRYPOINT ["/usr/local/bin/glm53-watchdog"]

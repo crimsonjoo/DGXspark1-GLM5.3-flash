@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env.glm
+.env.spark02
+.venv-tools
+benchmarks
+huggingface
+LICENSES
+docs
+*.log
+__pycache__
+*.pyc
