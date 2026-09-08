@@ -1,0 +1,19 @@
+ARG BASE_IMAGE=ghcr.io/gitcommit90/glm-5.3-one-spark:general23
+FROM ${BASE_IMAGE}
+
+COPY overlay/patch_mhc_sm121_safe.py /opt/glm53/patch_mhc_sm121_safe.py
+COPY overlay/patch_exl3_startup_clone.py /opt/glm53/patch_exl3_startup_clone.py
+RUN python3 /opt/glm53/patch_mhc_sm121_safe.py \
+    && python3 /opt/glm53/patch_exl3_startup_clone.py \
+    && python3 - <<'PY'
+from pathlib import Path
+mhc = Path('/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/mhc.py').read_text()
+exl3 = Path('/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/exl3.py').read_text()
+assert mhc.count('GLM53_SAFE_MHC') == 4
+assert exl3.count('loaded_weight = loaded_weight.clone()') >= 1
+assert exl3.count('loaded = loaded.clone()') >= 1
+print('SM121 safe runtime verification passed')
+PY
+
+LABEL org.opencontainers.image.title="GLM-5.3 One-Spark Safe Runtime" \
+      org.opencontainers.image.description="SM121-safe mHC fallback and fast EXL3 startup overlay"

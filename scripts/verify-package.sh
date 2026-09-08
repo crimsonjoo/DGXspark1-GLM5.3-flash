@@ -4,14 +4,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 bash -n start.sh apply.sh stop.sh download.sh scripts/serve-one-spark.sh \
   scripts/watchdog.sh scripts/smoke-test.sh scripts/install-systemd.sh
-python3 -m py_compile overlay/*.py tests/*.py benchmarks/raw/*/*.py
+python3 -m py_compile overlay/*.py scripts/api-gateway.py tests/*.py benchmarks/raw/*/*.py
 python3 - <<'PY'
 from pathlib import Path
 required = [
- 'Dockerfile','README.md','PROVENANCE.md','THIRD_PARTY_NOTICES.md','LICENSE',
+ 'Dockerfile','Dockerfile.safe','Dockerfile.gateway','README.md','PROVENANCE.md','THIRD_PARTY_NOTICES.md','LICENSE',
  'overlay/exl3.py','overlay/patch_full_exl3_loader.py',
  'tests/test_exl3_mul1_fused_diff.py','scripts/serve-one-spark.sh',
- 'apply.sh','stop.sh','compose.yaml','.env.glm.example','scripts/watchdog.sh',
+ 'apply.sh','stop.sh','compose.yaml','.env.glm.example','scripts/watchdog.sh','scripts/api-gateway.py',
  'benchmarks/METHODOLOGY.md'
 ]
 missing=[x for x in required if not Path(x).is_file()]

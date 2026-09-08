@@ -21,8 +21,8 @@ cd DGXspark1-GLM5.3-flash
 3. SSH 사용자 `sejin` 확인 또는 생성
 4. DFlash2 라이선스 안내 및 명시적 동의
 5. 고정된 EXL3 모델 약 80 GiB와 DFlash2 약 2.2 GiB 다운로드(중단 후 재개 가능)
-6. DGX Spark용 패치 vLLM 이미지 빌드
-7. Compose로 GLM 서버와 선택적 watchdog 실행
+6. 검증된 upstream 위에 GB10 안전 패치를 적용한 vLLM 이미지 빌드
+7. Compose로 외부 API 게이트웨이, 내부 GLM 엔진, 선택적 watchdog 실행
 8. health, 모델 목록, 실제 짧은 추론 검증
 9. 기본 라우트의 Wi-Fi/유선 LAN 주소를 우선한 API·health·SSH 명령 출력
 
@@ -36,8 +36,8 @@ cd DGXspark1-GLM5.3-flash
 ./start.sh           # 최초 점검·설치·다운로드·빌드 후 서버 실행
 ./start.sh --check   # 아무것도 바꾸지 않는 읽기 전용 점검
 ./apply.sh           # .env.glm의 변경 설정을 Compose에 적용
-./apply.sh --force   # 설정이 같아도 서버와 watchdog 재생성
-./stop.sh            # 두 컨테이너 중지, 모델/이미지/캐시는 보존
+./apply.sh --force   # 설정이 같아도 게이트웨이·서버·watchdog 재생성
+./stop.sh            # 컨테이너 중지, 모델/이미지/캐시는 보존
 ./stop.sh --remove   # 컨테이너와 Compose 리소스 제거, 데이터는 보존
 ./stop.sh --status   # 현재 상태만 표시
 ```
@@ -100,6 +100,10 @@ print(result.choices[0].message.content)
 | 동시 시퀀스 | `4` |
 | GPU 메모리 비율 | `0.90` |
 | DFlash2 speculative K | `5` |
+| 엔진 내부 포트 | `18081` (외부 접근 불가) |
+| 안전 출력 한도 | `8192` 토큰 |
+| prefix cache | 비활성화 |
+| SM121 mHC 커널 | 안전한 vLLM native 구현 |
 | 재시작 정책 | `unless-stopped` |
 
 K=5는 일반 대화·코딩용 기본값이고 구조화된 반복 출력 위주라면 `.env.glm`에서 `K=8`을 시험할 수 있습니다. 전체 262K 요청 네 개를 동시에 담을 만큼 KV 캐시가 크지는 않습니다.
@@ -110,13 +114,36 @@ K=5는 일반 대화·코딩용 기본값이고 구조화된 반복 출력 위�
 - Drafter: `incoai/GLM-5.3-Flash-DFlash2` revision `bf582e4eacc1810f76656d1811693ff6c6737d2a`
 - vLLM 기반 이미지와 패치 출처는 [PROVENANCE.md](PROVENANCE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 기록되어 있습니다.
 
+## 크래시 방지 구조
+
+Spark-02에서 같은 약 14K 토큰 prefix를 재사용한 요청이 들어올 때 TileLang/DeepGEMM 기반 mHC 커널이 `CUDA_ERROR_ILLEGAL_ADDRESS`로 엔진을 종료시키는 현상을 재현했습니다. 기본 설정은 재발 경로를 두 겹으로 제거합니다.
+
+- `SAFE_MHC=1`: 문제가 난 SM121 mHC custom op 대신 vLLM의 native 구현 사용
+- `PREFIX_CACHE=0`: 크래시의 공통 조건이던 부분 prefix-cache hit 제거
+- 외부 `18080`: 입력 검증과 안정적인 오류 응답을 담당하는 게이트웨이
+- 내부 `127.0.0.1:18081`: 외부에서 직접 도달할 수 없는 vLLM 엔진
+- `SAFE_MAX_OUTPUT_TOKENS=8192`: 확인된 위험 요청의 `max_tokens=16384`를 엔진 전에 HTTP 400으로 거부
+
+엔진이 초기 적재 또는 자동 복구 중이면 게이트웨이는 연결을 끊지 않고 HTTP 503, 오류 코드 `model_restarting`, `Retry-After: 60`을 돌려줍니다. 출력 한도 초과 시에는 HTTP 400과 `max_tokens_exceeds_safe_limit`을 돌려주므로 호출 측에서 원인을 구분할 수 있습니다. 안전 설정을 끄는 것은 재현·개발 목적에만 권장합니다.
+
+```bash
+# 변경 후 반영
+nano .env.glm
+./apply.sh --force
+
+# 과거 크래시 패턴 회귀 검사
+./scripts/regression-long-prefix.py
+```
+
 ## 이미지 선택
 
-기본값은 이 저장소의 고정 Dockerfile을 로컬에서 빌드하여 최신 포함 패치를 정확히 재현합니다. 빌드 시간을 줄이고 이미 공개된 upstream 이미지를 사용하려면 `.env.glm`을 다음처럼 변경합니다.
+기본값은 공개 upstream 이미지 위에 이 저장소의 작은 안전 overlay를 빌드합니다. upstream을 직접 사용하면 안전 패치가 빠지므로 문제 재현 외에는 권장하지 않습니다.
 
 ```bash
 IMAGE=ghcr.io/gitcommit90/glm-5.3-one-spark:general23
 BUILD_IMAGE=0
+SAFE_MHC=0
+PREFIX_CACHE=1
 ```
 
 그 뒤 `./start.sh`를 다시 실행하면 이미지가 없을 때 자동 pull합니다.
@@ -125,6 +152,7 @@ BUILD_IMAGE=0
 
 ```bash
 docker logs -f glm53-one-spark
+docker logs -f glm53-api-gateway
 docker logs -f glm53-watchdog
 curl http://127.0.0.1:18080/health
 ./scripts/smoke-test.sh http://127.0.0.1:18080

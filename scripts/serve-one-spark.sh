@@ -5,13 +5,15 @@ set -euo pipefail
 python3 /opt/glm53/patch_glm_video_placeholders.py
 K="${ONE_SPARK_K:-5}"  # 5 = best general-purpose; 8 = structured output.
 SPEC='{"method":"dflash","model":"/draft","num_speculative_tokens":'"$K"',"kv_cache_dtype":"auto","draft_sample_method":"probabilistic","rejection_sample_method":"standard","draft_tensor_parallel_size":1}'
+prefix_args=(--no-enable-prefix-caching)
+[ "${ONE_SPARK_PREFIX_CACHE:-0}" = 1 ] && prefix_args=(--enable-prefix-caching)
 exec vllm serve /model \
   --served-model-name "${ONE_SPARK_MODEL_NAME:-GLM-5.3-Flash-EXL3-2.05}" \
-  --host "${ONE_SPARK_HOST:-0.0.0.0}" --port "${ONE_SPARK_PORT:-18080}" \
+  --host "${ONE_SPARK_HOST:-127.0.0.1}" --port "${ONE_SPARK_PORT:-18081}" \
   --tensor-parallel-size 1 \
   --tool-call-parser glm47 --enable-auto-tool-choice \
   --reasoning-parser glm45 \
-  --enable-prefix-caching --no-enable-flashinfer-autotune \
+  "${prefix_args[@]}" --no-enable-flashinfer-autotune \
   --quantization exl3 \
   --max-model-len "${ONE_SPARK_CTX:-262144}" \
   --gpu-memory-utilization "${ONE_SPARK_GPU_MEM:-0.90}" \

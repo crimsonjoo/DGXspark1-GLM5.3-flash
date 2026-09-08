@@ -1,0 +1,4 @@
+FROM python:3.12-alpine
+COPY scripts/api-gateway.py /usr/local/bin/api-gateway
+RUN chmod 0755 /usr/local/bin/api-gateway
+ENTRYPOINT ["python3", "/usr/local/bin/api-gateway"]

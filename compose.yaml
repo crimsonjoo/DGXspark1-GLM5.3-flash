@@ -38,9 +38,11 @@ services:
       GLM53_MIXED_PREFILL_CHUNK: skip
       GLM53_INDEXER_WORKSPACE: stock
       GLM53_SPINWAIT_MS: stock
+      GLM53_SAFE_MHC: ${SAFE_MHC:-1}
       VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
-      ONE_SPARK_HOST: ${HOST:-0.0.0.0}
-      ONE_SPARK_PORT: ${PORT:-18080}
+      ONE_SPARK_HOST: 127.0.0.1
+      ONE_SPARK_PORT: ${BACKEND_PORT:-18081}
+      ONE_SPARK_PREFIX_CACHE: ${PREFIX_CACHE:-0}
       ONE_SPARK_MODEL_NAME: ${MODEL_NAME:-GLM-5.3-Flash-EXL3-2.05}
       ONE_SPARK_CTX: ${CTX:-262144}
       ONE_SPARK_SEQS: ${SEQS:-4}
@@ -49,13 +51,34 @@ services:
       ONE_SPARK_K: ${K:-5}
     entrypoint: ["bash", "/opt/glm53-one-click/serve.sh"]
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c 'import urllib.request; r=urllib.request.urlopen(\"http://127.0.0.1:${PORT:-18080}/health\",timeout=5); raise SystemExit(0 if r.status == 200 else 1)'"]
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; r=urllib.request.urlopen(\"http://127.0.0.1:${BACKEND_PORT:-18081}/health\",timeout=5); raise SystemExit(0 if r.status == 200 else 1)'"]
       interval: 30s
       timeout: 10s
       retries: 6
       start_period: 20m
     labels:
       com.glm53.watchdog: "true"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    image: glm53-api-gateway:local
+    container_name: glm53-api-gateway
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      glm:
+        condition: service_started
+    environment:
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: ${PORT:-18080}
+      BACKEND_HOST: 127.0.0.1
+      BACKEND_PORT: ${BACKEND_PORT:-18081}
+      MODEL_NAME: ${MODEL_NAME:-GLM-5.3-Flash-EXL3-2.05}
+      SAFE_MAX_OUTPUT_TOKENS: ${SAFE_MAX_OUTPUT_TOKENS:-8192}
+      GATEWAY_MAX_BODY_BYTES: ${GATEWAY_MAX_BODY_BYTES:-16777216}
+      GATEWAY_BACKEND_TIMEOUT: ${GATEWAY_BACKEND_TIMEOUT:-1800}
 
   watchdog:
     profiles: [watchdog]
@@ -73,7 +96,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       WATCHDOG_CONTAINER: glm53-one-spark
-      WATCHDOG_URL: http://127.0.0.1:${PORT:-18080}
+      WATCHDOG_URL: http://127.0.0.1:${BACKEND_PORT:-18081}
       WATCHDOG_MODEL: ${MODEL_NAME:-GLM-5.3-Flash-EXL3-2.05}
       WATCHDOG_INTERVAL: ${WATCHDOG_INTERVAL:-30}
       WATCHDOG_FAILURES: ${WATCHDOG_FAILURES:-6}
